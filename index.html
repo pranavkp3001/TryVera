@@ -17,9 +17,7 @@
       }
     </style>
     <script>
-      // Polyfill for process.env to allow the Gemini SDK to work in the browser
-      // WARNING: This exposes your API key to anyone who views the source. 
-      // Only use this for demos/prototypes.
+      // Environment configuration polyfill
       window.process = {
         env: {
           API_KEY: "AIzaSyDCNJJ_0ieELJ7xPAHDXqN3JFKQ5KZ7qj0"
