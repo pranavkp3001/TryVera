@@ -1,0 +1,122 @@
+import { GoogleGenAI, Type } from "@google/genai";
+
+export const analyzeStyle = async (base64Image: string): Promise<any> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
+    const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg);base64,/, '');
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'image/jpeg',
+              data: cleanBase64,
+            },
+          },
+          {
+            text: `Analyze this person's physical appearance with high precision. 
+            1. Identify their exact skin undertone (warm, cool, or neutral) and depth.
+            2. Evaluate their body type and proportions (e.g., height, shoulder width, waist-to-hip ratio).
+            3. Recommend 5 specific clothing colors that would maximize their visual appeal based on color theory (e.g., jewel tones for cool undertones, earth tones for warm).
+            4. Provide a highly accurate size recommendation (S/M/L/XL/XXL) considering the fit of their current clothing.
+            5. Give professional style advice tailored to their specific build and coloring.
+            Return the result in JSON format.`,
+          },
+        ],
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            skinTone: { type: Type.STRING, description: "Description of the detected skin tone" },
+            recommendedColors: { 
+              type: Type.ARRAY, 
+              items: { type: Type.STRING },
+              description: "List of 3-5 colors that complement the skin tone"
+            },
+            sizeRecommendation: { type: Type.STRING, description: "Recommended size (e.g., Medium)" },
+            styleAdvice: { type: Type.STRING, description: "Short style tip based on their appearance" }
+          },
+          required: ["skinTone", "recommendedColors", "sizeRecommendation", "styleAdvice"]
+        }
+      }
+    });
+
+    return JSON.parse(response.text || '{}');
+  } catch (error) {
+    console.error("Style Analysis Error:", error);
+    return null;
+  }
+};
+
+export const generateTryOn = async (
+  base64Image: string,
+  productDescription: string,
+  category: string
+): Promise<string> => {
+  try {
+    // Initialize inside the function to avoid top-level ReferenceError if process is not defined immediately
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || process.env.API_KEY });
+
+    // Strip the data URL prefix if present to get just the base64 string
+    const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg);base64,/, '');
+
+    // Determine the target area based on the clothing category
+    let targetArea = "current top/upper body clothing";
+    let additionalInstructions = "";
+
+    if (['pants', 'skirt', 'shorts', 'jeans', 'trousers'].includes(category)) {
+      targetArea = "current lower body clothing (pants/skirt)";
+      additionalInstructions = "Ensure the waistline blends naturally with the existing top.";
+    } else if (['footwear'].includes(category)) {
+      targetArea = "current shoes/footwear";
+      additionalInstructions = "ONLY change the shoes. Keep the rest of the outfit (pants, shirt, etc.) exactly as they are in the original image. Ensure the new shoes are placed naturally on the person's feet, matching their stance and perspective.";
+    } else if (['dress', 'suit', 'fullbody'].includes(category)) {
+      targetArea = "current outfit (both top and bottom)";
+    }
+
+    const prompt = `Edit this image to show the person wearing a new outfit.
+    Replace the person's ${targetArea} with: ${productDescription}.
+    
+    CRITICAL INSTRUCTIONS:
+    1. Accurately detect the person's body, even if they are standing far away or only partially visible.
+    2. Map the new clothing perfectly to their body shape, pose, and perspective.
+    3. Ensure realistic fabric folds, lighting, and shadows that match the original scene.
+    4. Do NOT modify the person's face, hair, skin tone, hands, or the background.
+    5. ${additionalInstructions}
+    
+    Output a high-quality, photorealistic image.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'image/jpeg',
+              data: cleanBase64,
+            },
+          },
+          {
+            text: prompt,
+          },
+        ],
+      },
+    });
+
+    // Check for inline data (image) response
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData && part.inlineData.data) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
+    }
+
+    throw new Error("No image generated by the model.");
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    throw error;
+  }
+};
